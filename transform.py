@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+""" Original code belongs to Alex & Gareth Rees, see https://codereview.stackexchange.com/questions/41688/rotating-greyscale-images"""
+
 import cv2
 import math
 import numpy as np
@@ -8,39 +10,96 @@ class Transform(object):
 	def __init__(self):
 		pass
 
-	def getRMat(self, (cx, cy), angle, scale):
+	@staticmethod
+	def rotate_coords(coord_list, theta, origin):
+		"""Rotate arrays of coordinates x and y by theta radians about the origin point.
 		"""
-		Calculates rotational matrix
-		"""
-		a = scale*math.cos(angle*np.pi/180)
-		b = scale*(math.sin(angle*np.pi/180))
-		# u = (1-a)*cx-b*cy
-		# v = b*cx+(1-a)*cy
-		u = cx * a + cy * b
-		v = cx * b + cy * a
-		# round (x*cos(anrad)+ y*sin(anrad));
-  #   h= round (x*sin(anrad)+ y*cos(anrad));
-		print u,v
-		return np.array([[a,b,u], [-b,a,v]]) 
+		(ox, oy) = origin
+		x, y = coord_list[:][0], coord_list[:][1] # Vector of all x and all y coordinates for corners.
+
+		sin, cos = np.sin(theta), np.cos(theta)
+		x, y = np.asarray(x) - ox, np.asarray(y) - oy
+		return x * cos - y * sin + ox, x * sin + y * cos + oy
 
 	@staticmethod
-	def warpAffine2D(image, matrix, width, height):
+	def rotate_image(src, theta, origin, fill=255):
+		"""Rotate the image src by theta radians about (ox, oy).
+		Pixels in the result that don't correspond to pixels in src are
+		replaced by the value fill (White).
+		We try to find corresponding pixels from the destination image,
+		and match them to the source image to eliminate attempts to access nonexistent pixels in source.
 		"""
-		For each cell in destination matrix (index u,v),
-		the corresponding (transformed) source matrix indices (x,y) are calculated for each index.
-		We need to work backwards from the destination matrix because the alternative is
-		potentially having cells in dst that don't correspond to any source cell.
-		"""
-		dst = np.zeros((height, width, 3), dtype=np.uint8) # Create destination np array
-		oldh, oldw = image.shape[:2]
-		for u in range(width):
-			for v in range(height):
-				x = u*matrix[0,0]+v*matrix[0,1]+matrix[0,2]
-				y = u*matrix[1,0]+v*matrix[1,1]+matrix[1,2]
-				intx, inty = int(x), int(y)
-				if 0 < intx < oldw and 0 < inty < oldh: # Only copy the src cell to dst cell if it exists.
-					pix = image[inty, intx]
-					dst[v, u] = pix
+
+		t = Transform()
+
+		# Images have origin at the top left, so the angle is negated. (Clockwise rotation)
+		theta = -theta
+		# Dimensions of source image. Note that scipy.misc.imread loads
+		# images in row-major order, so src.shape gives (height, width).
+		height, width, channels = src.shape
+
+		# Positions of the corners of the source image. (Vector)
+		corners = np.transpose([[0,0],[width,0],[width,height],[0,height]])
+		cx, cy = t.rotate_coords(corners, theta, origin)
+
+		# Determine dimensions of destination image by finding extremes.
+		newWidth, newHeight = (int(np.ceil(c.max() - c.min())) for c in (cx, cy))
+
+		# Iterate over image to form grid of coordinates of pixels in destination image.
+		dx, dy = np.meshgrid(np.arange(newWidth), np.arange(newHeight))
+		pixels = [dx + cx.min(), dy + cy.min()]
+
+		# Corresponding coordinates in source image. Since we are
+		# transforming dest-to-src here, the rotation is negated.
+		sx, sy = t.rotate_coords(pixels, -theta, origin)
+		# Select nearest neighbour pixel. Index must be integer.
+		sx, sy = sx.round().astype(int), sy.round().astype(int)
+
+		# Mask for valid coordinates.
+		mask = (0 <= sx) & (sx < width) & (0 <= sy) & (sy < height)
+		# Create destination image.
+		dest = np.empty(shape=(newHeight, newWidth, channels), dtype=src.dtype)
+
+		# Copy valid coordinates from source image.
+		dest[dy[mask], dx[mask]] = src[sy[mask], sx[mask]]
+		# Fill invalid coordinates. Fill inverted mask with white.
+		dest[dy[~mask], dx[~mask]] = fill
+		return dest
+
+	@staticmethod
+	def scale(src):
+		height, width, channels = src.shape
+		# Positions of the corners of the source image. (Vector)
+		corners = np.transpose([[0,0],[width,0],[width,height],[0,height]])
+		# Determine dimensions of destination image by finding extremes.
+		newWidth, newHeight = scale*(int(np.ceil(corners.max() - corners.min())) for c in (cx, cy))
+
+		# Iterate over image to form grid of coordinates of pixels in destination image.
+		dx, dy = np.meshgrid(np.arange(newWidth), np.arange(newHeight))
+		pixels = [dx + cx.min(), dy + cy.min()] # Moves into frame
+
+		(ox, oy) = origin
+		x, y = coord_list[:][0], coord_list[:][1] # Vector of all x and all y coordinates for corners.
+
+		sin, cos = np.sin(theta), np.cos(theta)
+		x, y = np.asarray(x) - ox, np.asarray(y) - oy
+		# return x * cos - y * sin + ox, x * sin + y * cos + oy
+
+		# Corresponding coordinates in source image. Since we are
+		# transforming dest-to-src here, the rotation is negated.
+		# sx, sy = 
+		# Select nearest neighbour pixel. Index must be integer.
+		sx, sy = sx.round().astype(int), sy.round().astype(int)
+
+		pass
+
+	@staticmethod
+	def transform(src, angle, scale):
+		if angle is not 0:
+			dst = t.rotate_image(src, angle * np.pi / 180, (100, 100))
+		if scale is not 1:
+			# dst = 
+			pass
 		return dst
 
 	@staticmethod
@@ -51,30 +110,14 @@ class Transform(object):
 		cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-	# orig = np.identity(3)
-	isoScale = np.array([[0.5,0,0],[0,0.5,0],[0,0,0.5]])
-	# angle = math.pi
 	angle = 45
-	# rot = np.array([[1,0,0],[0, math.cos(angle), math.sin(angle)],[0, math.sin(angle), math.cos(angle)]])
 	t = Transform()
 
 	src = cv2.imread("frisk.jpg")
 
-	h, w, channels = src.shape
-	cx, cy = (h / 2, w / 2)
-	mat = t.getRMat((cx, cy), int(angle), 1)
-	# print mat
-	cos = np.abs(mat[0,0])
-	sin  = np.abs(mat[0,1])
-	newWidth = int((h * sin) + (w * cos))
-	newHeight = int((h * cos) + (w * sin))
-	print newHeight, newWidth
-	mat[0,2] += cx - (newWidth / 2)
-	mat[1,2] += cy - (newHeight / 2)
+	height, width, channels = src.shape
+	cx, cy = (width / 2.0, height / 2.0)
 
-	# print mat[:,2]
-	# print cx, cy
-
-	# newHeight, newWidth, channels = src.shape
-	dst = t.warpAffine2D(src, mat, newWidth, newHeight)
-	t.display(src, dst)
+	fin = t.transform(src, angle, 1.0)
+	# dst = t.rotate_image(src, angle * np.pi / 180, (100, 100))
+	t.display(src, fin)
