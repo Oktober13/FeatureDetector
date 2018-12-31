@@ -1,4 +1,4 @@
-# FeatureDetector
+# NumpyTransforms
 ### CompRobo 2018
 
 ##### Repo of deliverables for the final project.
