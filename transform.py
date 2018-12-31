@@ -1,6 +1,12 @@
 #!/usr/bin/env python
 
-""" Original code belongs to Alex & Gareth Rees, see https://codereview.stackexchange.com/questions/41688/rotating-greyscale-images"""
+""" 
+Original code for rotation belongs to Alex & Gareth Rees, see https://codereview.stackexchange.com/questions/41688/rotating-greyscale-images.
+Code for scaling and skew written by L. Zuehsow (Oktober13)
+The transform matrices act on individual cells from the original source image, which are treated as "points."
+It's important to only act on cells in the source image and determine where they should be placed in the destination image. 
+The reverse operation is prone to indexing issues when the destination image is a different size from the original.
+"""
 
 import cv2
 import math
@@ -51,7 +57,7 @@ class Transform(object):
 
 		# Corresponding coordinates in source image. Since we are
 		# transforming dest-to-src here, the rotation is negated.
-		sx, sy = t.rotate_coords(pixels, -theta, origin)
+		sx, sy = t.rotate_coords(pixels, theta, origin)
 		# Select nearest neighbour pixel. Index must be integer.
 		sx, sy = sx.round().astype(int), sy.round().astype(int)
 
@@ -67,39 +73,108 @@ class Transform(object):
 		return dest
 
 	@staticmethod
-	def scale(src):
+	def scaleCoords(coord_list, scale):
+		""" Scale the coordinates of the four corners of the image. """
+		x, y = coord_list[:][0], coord_list[:][1] # Vector of all x and all y coordinates for corners.
+		sx, sy = np.dot(x,1.0/scale), np.dot(y, 1.0/scale)
+		return sx, sy
+
+	@staticmethod
+	def scale(src, scale, fill=255):
+		""" Scale an image up or down in size. """
+
 		height, width, channels = src.shape
+
 		# Positions of the corners of the source image. (Vector)
 		corners = np.transpose([[0,0],[width,0],[width,height],[0,height]])
+
 		# Determine dimensions of destination image by finding extremes.
-		newWidth, newHeight = scale*(int(np.ceil(corners.max() - corners.min())) for c in (cx, cy))
+		newWidth = int(scale * int(np.ceil(corners[0].max() - corners[0].min())))
+		newHeight = int(scale * int(np.ceil(corners[1].max() - corners[1].min())))
 
 		# Iterate over image to form grid of coordinates of pixels in destination image.
 		dx, dy = np.meshgrid(np.arange(newWidth), np.arange(newHeight))
-		pixels = [dx + cx.min(), dy + cy.min()] # Moves into frame
+		pixels = [dx + corners[0].min(), dy + corners[1].min()] # Moves into frame
 
-		(ox, oy) = origin
-		x, y = coord_list[:][0], coord_list[:][1] # Vector of all x and all y coordinates for corners.
+		sx, sy = t.scaleCoords(pixels, scale)
 
-		sin, cos = np.sin(theta), np.cos(theta)
-		x, y = np.asarray(x) - ox, np.asarray(y) - oy
-		# return x * cos - y * sin + ox, x * sin + y * cos + oy
-
-		# Corresponding coordinates in source image. Since we are
-		# transforming dest-to-src here, the rotation is negated.
-		# sx, sy = 
 		# Select nearest neighbour pixel. Index must be integer.
 		sx, sy = sx.round().astype(int), sy.round().astype(int)
 
-		pass
+		# Mask for valid coordinates.
+		mask = (0 <= sx) & (sx < width) & (0 <= sy) & (sy < height)
+
+		# Create destination image
+		dest = np.empty(shape=(newHeight, newWidth, channels), dtype=src.dtype)
+
+		# Copy valid coordinates from source image into destination image.
+		dest[dy[mask], dx[mask]] = src[sy[mask], sx[mask]]
+		
+		# # Fill invalid coordinates. Fill inverted mask with white.
+		dest[dy[~mask], dx[~mask]] = fill
+		return dest
 
 	@staticmethod
-	def transform(src, angle, scale):
-		if angle is not 0:
-			dst = t.rotate_image(src, angle * np.pi / 180, (100, 100))
+	def skewCoords(coord_list, scale):
+		""" Scale the coordinates of the four corners of the image. """
+		scaleX, scaleY = skew[0][0], skew[1][1]
+		x, y = coord_list[:][0], coord_list[:][1] # Vector of all x and all y coordinates for corners.
+		sx, sy = np.dot(x,1.0/scaleX), np.dot(y, 1.0/scaleY)
+		return sx, sy
+
+	@staticmethod
+	def skew(src, skew, fill=255):
+		""" Skew an image horizontally or vertically. """
+
+		height, width, channels = src.shape
+
+		# Positions of the corners of the source image. (Vector)
+		corners = np.transpose([[0,0],[width,0],[width,height],[0,height]])
+
+		# Determine dimensions of destination image by finding extremes.
+		newWidth = int(skew[0][0] * int(np.ceil(corners[0].max() - corners[0].min())))
+		newHeight = int(skew[1][1] * int(np.ceil(corners[1].max() - corners[1].min())))
+
+		# Iterate over image to form grid of coordinates of pixels in destination image.
+		dx, dy = np.meshgrid(np.arange(newWidth), np.arange(newHeight))
+		pixels = [dx + corners[0].min(), dy + corners[1].min()] # Moves into frame
+
+		sx, sy = t.skewCoords(pixels, scale)
+
+		# Select nearest neighbour pixel. Index must be integer.
+		sx, sy = sx.round().astype(int), sy.round().astype(int)
+
+		# Mask for valid coordinates.
+		mask = (0 <= sx) & (sx < width) & (0 <= sy) & (sy < height)
+
+		# Create destination image
+		dest = np.empty(shape=(newHeight, newWidth, channels), dtype=src.dtype)
+
+		# Copy valid coordinates from source image into destination image.
+		dest[dy[mask], dx[mask]] = src[sy[mask], sx[mask]]
+		
+		# # Fill invalid coordinates. Fill inverted mask with white.
+		dest[dy[~mask], dx[~mask]] = fill
+		return dest
+
+	@staticmethod
+	def transform(src, angle = 0, scale = 0, skew = None):
+		""" Wrapper function, performs requested transforms. """
+		dst = src
+
 		if scale is not 1:
-			# dst = 
-			pass
+			if scale > 0:
+				dst = t.scale(src, scale)
+			else:
+				print "INVALID INPUT: Negative or zero scale is not allowed."
+		if skew is not None or np.identity(2):
+			if skew[0][0] > 0 and skew[1][1] > 0:
+				dst = t.skew(dst,skew)
+			else:
+				print "INVALID INPUT: Negative or zero skews are not allowed."
+		if angle is not 0:
+			origin = (int(dst.shape[1] / 2), int(dst.shape[0] / 2)) # y, x
+			dst = t.rotate_image(dst, angle * np.pi / 180, origin)
 		return dst
 
 	@staticmethod
@@ -111,13 +186,13 @@ class Transform(object):
 
 if __name__ == "__main__":
 	angle = 45
+	scale = 1.5
+	skew = np.array([[2,0],[0,1]])
+
 	t = Transform()
 
 	src = cv2.imread("frisk.jpg")
 
-	height, width, channels = src.shape
-	cx, cy = (width / 2.0, height / 2.0)
-
-	fin = t.transform(src, angle, 1.0)
+	fin = t.transform(src, angle, scale, skew)
 	# dst = t.rotate_image(src, angle * np.pi / 180, (100, 100))
 	t.display(src, fin)
