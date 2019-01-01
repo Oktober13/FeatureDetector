@@ -148,8 +148,6 @@ class Transform(object):
 		else:
 			newHeight = int(np.ceil(corners[1].max() - corners[1].min()))
 
-		print newWidth, newHeight, shear[0][1], shear[1][0]
-
 		# Iterate over image to form grid of coordinates of pixels in destination image.
 		dx, dy = np.meshgrid(np.arange(newWidth), np.arange(newHeight))
 		pixels = [dx + corners[0].min(), dy + corners[1].min()] # Moves into frame
@@ -200,9 +198,9 @@ class Transform(object):
 		cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-	angle = 45
+	angle = 180
 	scale = np.array([[2,0],[0,1]])
-	shear = np.array([[1,0.5],[0,1]])
+	shear = np.array([[1,1],[0,1]])
 
 	t = Transform()
 
